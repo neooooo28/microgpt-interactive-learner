@@ -6,6 +6,7 @@ The model trains on a dataset of names and learns to generate new, plausible-sou
 
 ### :bulb: [**Interactive Visual Guide**](https://neooooo28.github.io/microgpt-interactive-learner/educational_guide.html)
 
+https://neooooo28.github.io/microgpt-interactive-learner/educational_guide.html (yes, it's the same link)
 ---
 
 ## Table of Contents
