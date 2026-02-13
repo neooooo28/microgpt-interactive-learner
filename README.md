@@ -4,7 +4,7 @@ A single-file, dependency-free implementation of training and inference for a GP
 
 The model trains on a dataset of names and learns to generate new, plausible-sounding names from scratch.
 
-### :bulb: [**Interactive Visual Guide**](https://htmlpreview.github.io/?https://github.com/neooooo28/microgpt-interactive-learner/blob/main/educational_guide.html)
+### :bulb: [**Interactive Visual Guide**](https://neooooo28.github.io/microgpt-interactive-learner/educational_guide.html)
 
 ---
 
