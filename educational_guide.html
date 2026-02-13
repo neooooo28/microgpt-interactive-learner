@@ -1,0 +1,1656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>microgpt.py — Interactive Educational Guide</title>
+<style>
+:root {
+  --bg: #0f1117; --surface: #1a1d27; --surface2: #242836; --border: #2d3348;
+  --text: #e2e8f0; --dim: #8892a8; --blue: #60a5fa; --green: #4ade80;
+  --orange: #fb923c; --red: #f87171; --purple: #a78bfa; --cyan: #22d3ee;
+  --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: var(--bg); color: var(--text); font-family: var(--font); line-height: 1.6; }
+a { color: var(--blue); text-decoration: none; }
+
+/* Loading overlay */
+#loading { position: fixed; inset: 0; background: var(--bg); z-index: 1000; display: flex;
+  flex-direction: column; align-items: center; justify-content: center; gap: 20px; transition: opacity 0.5s; }
+#loading h2 { font-size: 1.4rem; color: var(--dim); }
+#loading .bar { width: 300px; height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
+#loading .bar-fill { height: 100%; width: 0%; background: var(--blue); transition: width 0.1s; border-radius: 3px; }
+#loading.done { opacity: 0; pointer-events: none; }
+
+/* Layout */
+nav#sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: 220px; background: var(--surface);
+  border-right: 1px solid var(--border); padding: 24px 0; z-index: 100; overflow-y: auto; }
+nav#sidebar .logo { padding: 0 20px 20px; font-family: var(--mono); font-size: 0.9rem; color: var(--dim);
+  border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+nav#sidebar .logo span { color: var(--blue); }
+nav#sidebar a { display: block; padding: 8px 20px; font-size: 0.85rem; color: var(--dim);
+  transition: all 0.2s; border-left: 3px solid transparent; }
+nav#sidebar a:hover { color: var(--text); background: var(--surface2); }
+nav#sidebar a.active { color: var(--blue); border-left-color: var(--blue); background: rgba(96,165,250,0.08); }
+
+main { margin-left: 220px; max-width: 960px; padding: 40px 48px 120px; }
+section { margin-bottom: 64px; scroll-margin-top: 24px; }
+h1 { font-size: 2rem; margin-bottom: 8px; }
+h1 small { font-size: 0.9rem; color: var(--dim); font-weight: normal; }
+h2 { font-size: 1.5rem; margin-bottom: 12px; color: var(--text); }
+h3 { font-size: 1.1rem; margin: 20px 0 8px; color: var(--dim); }
+p { color: var(--dim); margin-bottom: 12px; max-width: 680px; }
+p strong { color: var(--text); }
+
+/* Demo boxes */
+.demo { background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 24px; margin: 16px 0 24px; }
+.demo-row { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+.demo-col { flex: 1; min-width: 280px; }
+
+/* Buttons */
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--surface2); color: var(--text); font-size: 0.82rem;
+  cursor: pointer; font-family: var(--font); transition: all 0.15s; }
+.btn:hover { border-color: var(--blue); background: rgba(96,165,250,0.1); }
+.btn.active { border-color: var(--blue); background: rgba(96,165,250,0.15); color: var(--blue); }
+.btn.primary { background: var(--blue); color: #000; border-color: var(--blue); font-weight: 600; }
+.btn.primary:hover { background: #7bb8fc; }
+.btn-group { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
+
+/* Inputs */
+input[type="text"] { background: var(--bg); border: 1px solid var(--border); color: var(--text);
+  padding: 8px 12px; border-radius: 6px; font-family: var(--mono); font-size: 0.9rem; width: 100%; }
+input[type="text"]:focus { outline: none; border-color: var(--blue); }
+input[type="range"] { accent-color: var(--blue); }
+label { font-size: 0.85rem; color: var(--dim); }
+
+/* Token chips */
+.token-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 4px;
+  font-family: var(--mono); font-size: 0.8rem; margin: 2px; border: 1px solid var(--border); }
+.token-chip .char { color: var(--text); }
+.token-chip .id { color: var(--dim); font-size: 0.7rem; }
+.token-chip.bos { border-color: var(--orange); background: rgba(251,146,60,0.1); }
+.token-chip.bos .char { color: var(--orange); }
+
+/* Token mapping table */
+.token-table { display: flex; flex-wrap: wrap; gap: 4px; margin: 12px 0; }
+.token-cell { width: 32px; height: 40px; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; background: var(--surface2); border-radius: 4px; font-family: var(--mono); }
+.token-cell .c { font-size: 0.85rem; color: var(--text); }
+.token-cell .i { font-size: 0.65rem; color: var(--dim); }
+
+/* SVG autograd graph */
+#autograd-svg { width: 100%; height: 360px; }
+#autograd-svg .node { cursor: pointer; }
+#autograd-svg .node circle { fill: var(--surface2); stroke: var(--border); stroke-width: 2; transition: all 0.3s; }
+#autograd-svg .node.highlighted circle { stroke: var(--green); fill: rgba(74,222,128,0.1); }
+#autograd-svg .node text.label { fill: var(--dim); font-size: 11px; text-anchor: middle; font-family: var(--mono); }
+#autograd-svg .node text.val { fill: var(--blue); font-size: 12px; text-anchor: middle; font-weight: bold; font-family: var(--mono); }
+#autograd-svg .node text.grad { fill: var(--green); font-size: 10px; text-anchor: middle; font-family: var(--mono); opacity: 0; transition: opacity 0.3s; }
+#autograd-svg .node.highlighted text.grad { opacity: 1; }
+#autograd-svg line.edge { stroke: var(--border); stroke-width: 1.5; }
+#autograd-svg line.edge.highlighted { stroke: var(--green); stroke-width: 2; }
+
+/* Parameter heatmap */
+.param-grid { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
+.param-block { cursor: pointer; border: 1px solid var(--border); border-radius: 6px; padding: 8px;
+  background: var(--surface2); transition: all 0.2s; text-align: center; }
+.param-block:hover { border-color: var(--blue); }
+.param-block.selected { border-color: var(--blue); background: rgba(96,165,250,0.08); }
+.param-block canvas { display: block; margin: 4px auto; border-radius: 3px; }
+.param-block .name { font-family: var(--mono); font-size: 0.75rem; color: var(--text); margin-top: 4px; }
+.param-block .shape { font-size: 0.65rem; color: var(--dim); }
+.param-detail { margin-top: 16px; padding: 16px; background: var(--bg); border-radius: 8px; border: 1px solid var(--border); }
+.param-detail canvas { border-radius: 4px; }
+
+/* Architecture diagram */
+.arch-step-info { background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  padding: 16px; margin-top: 12px; font-family: var(--mono); font-size: 0.8rem; }
+.arch-block { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px 0; }
+.arch-box { padding: 10px 20px; border-radius: 8px; border: 2px solid var(--border); text-align: center;
+  min-width: 200px; transition: all 0.3s; font-size: 0.85rem; }
+.arch-box.active { border-color: var(--cyan); background: rgba(34,211,238,0.08); box-shadow: 0 0 12px rgba(34,211,238,0.15); }
+.arch-box.embed { border-color: var(--blue); }
+.arch-box.attn { border-color: var(--green); }
+.arch-box.mlp { border-color: var(--orange); }
+.arch-box.out { border-color: var(--purple); }
+.arch-arrow { color: var(--dim); font-size: 1.2rem; }
+.arch-residual { font-size: 0.75rem; color: var(--dim); font-style: italic; }
+
+/* Attention heatmap */
+.attn-grid { display: inline-grid; gap: 2px; margin: 12px 0; }
+.attn-cell { width: 48px; height: 48px; display: flex; align-items: center; justify-content: center;
+  border-radius: 4px; font-family: var(--mono); font-size: 0.7rem; color: var(--text);
+  cursor: pointer; transition: all 0.15s; border: 1px solid transparent; }
+.attn-cell:hover { border-color: var(--text); }
+.attn-label { display: flex; align-items: center; justify-content: center; font-family: var(--mono);
+  font-size: 0.75rem; color: var(--dim); width: 48px; height: 48px; }
+
+/* Loss chart */
+#loss-canvas { width: 100%; height: 180px; background: var(--bg); border-radius: 8px; border: 1px solid var(--border); }
+.train-stats { display: flex; gap: 24px; margin: 8px 0; font-family: var(--mono); font-size: 0.85rem; }
+.train-stats span { color: var(--blue); }
+.train-doc { margin: 12px 0; padding: 12px; background: var(--bg); border-radius: 8px;
+  font-family: var(--mono); font-size: 0.9rem; border: 1px solid var(--border); }
+.train-pair { display: inline-block; margin: 2px 4px; padding: 2px 6px; border-radius: 4px; }
+.train-pair .input { color: var(--blue); }
+.train-pair .arrow { color: var(--dim); margin: 0 2px; }
+.train-pair .target { color: var(--green); }
+
+/* Inference */
+.gen-output { margin: 16px 0; }
+.gen-name { margin: 8px 0; padding: 12px; background: var(--bg); border-radius: 8px; border: 1px solid var(--border); }
+.gen-token { display: inline-block; margin: 0 1px; padding: 4px 6px; border-radius: 4px;
+  font-family: var(--mono); font-size: 1rem; cursor: pointer; transition: background 0.15s; position: relative; }
+.gen-token:hover { background: var(--surface2); }
+.gen-token.bos-tok { color: var(--orange); }
+.prob-bar-container { margin-top: 12px; }
+.prob-bar-row { display: flex; align-items: center; gap: 8px; margin: 2px 0; font-family: var(--mono); font-size: 0.72rem; }
+.prob-bar-label { width: 28px; text-align: right; color: var(--dim); }
+.prob-bar { height: 14px; border-radius: 2px; transition: width 0.3s; min-width: 1px; }
+.prob-bar-val { color: var(--dim); width: 45px; }
+.prob-bar-row.sampled .prob-bar-label { color: var(--green); font-weight: bold; }
+.prob-bar-row.sampled .prob-bar { box-shadow: 0 0 6px rgba(74,222,128,0.4); }
+
+/* Code toggle */
+.code-toggle { margin-top: 16px; }
+.code-block { display: none; margin-top: 8px; padding: 12px 16px; background: var(--bg); border-radius: 8px;
+  border: 1px solid var(--border); font-family: var(--mono); font-size: 0.78rem; line-height: 1.5;
+  color: var(--dim); overflow-x: auto; white-space: pre; }
+.code-block.open { display: block; }
+.code-block .kw { color: var(--purple); }
+.code-block .fn { color: var(--blue); }
+.code-block .str { color: var(--green); }
+.code-block .num { color: var(--orange); }
+.code-block .cm { color: #555; }
+
+/* Slider row */
+.slider-row { display: flex; align-items: center; gap: 12px; margin: 6px 0; }
+.slider-row label { min-width: 24px; font-family: var(--mono); font-size: 0.85rem; }
+.slider-row input[type="range"] { flex: 1; max-width: 200px; }
+.slider-row .slider-val { font-family: var(--mono); font-size: 0.85rem; color: var(--blue); min-width: 50px; }
+
+/* Mode toggle */
+.mode-toggle { display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
+  padding: 10px 16px; background: var(--surface2); border-radius: 8px; border: 1px solid var(--border); }
+.mode-toggle .badge { padding: 3px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+.mode-toggle .badge.trained { background: rgba(74,222,128,0.15); color: var(--green); }
+.mode-toggle .badge.random { background: rgba(251,146,60,0.15); color: var(--orange); }
+</style>
+</head>
+<body>
+
+<!-- Loading Overlay -->
+<div id="loading">
+  <h2>Pre-training model<span id="load-dots">...</span></h2>
+  <div class="bar"><div class="bar-fill" id="load-bar"></div></div>
+  <p style="color:var(--dim);font-size:0.85rem" id="load-status">Initializing...</p>
+</div>
+
+<!-- Sidebar -->
+<nav id="sidebar">
+  <div class="logo"><span>micro</span>gpt.py</div>
+  <a href="#sec-hero" class="active">Intro</a>
+  <a href="#sec-tokenizer">1. Tokenizer</a>
+  <a href="#sec-autograd">2. Autograd</a>
+  <a href="#sec-params">3. Parameters</a>
+  <a href="#sec-arch">4. Architecture</a>
+  <a href="#sec-attention">5. Attention</a>
+  <a href="#sec-training">6. Training</a>
+  <a href="#sec-inference">7. Inference</a>
+</nav>
+
+<!-- Main Content -->
+<main>
+
+<!-- Hero -->
+<section id="sec-hero">
+  <h1>microgpt.py <small>Interactive Guide</small></h1>
+  <p>An interactive exploration of <a href="https://github.com/karpathy">@karpathy</a>'s complete GPT implementation in 200 lines of pure Python. Every concept below is live — adjust sliders, step through computations, train the model, and generate new names.</p>
+  <div class="mode-toggle">
+    <span style="font-size:0.85rem">Model state:</span>
+    <span class="badge trained" id="model-badge">Pre-trained (300 steps)</span>
+    <button class="btn" id="reset-btn" onclick="resetModel()">Reset to Random</button>
+    <button class="btn" id="pretrain-btn" onclick="pretrainModel()">Pre-train 300 Steps</button>
+  </div>
+</section>
+
+<!-- Section 1: Tokenizer -->
+<section id="sec-tokenizer">
+  <h2>1. Dataset & Tokenizer</h2>
+  <p>The model learns from ~32,000 human names. Each character maps to a token ID (0–25 for a–z). A special <strong>BOS</strong> (Beginning/End of Sequence) token with ID 26 wraps every name.</p>
+
+  <div class="demo">
+    <h3>Token Vocabulary</h3>
+    <div class="token-table" id="token-table"></div>
+
+    <h3 style="margin-top:20px">Try it — type a name:</h3>
+    <input type="text" id="tok-input" placeholder="emma" maxlength="16" oninput="updateTokenizer()">
+    <div id="tok-output" style="margin-top:12px;min-height:36px"></div>
+
+    <h3 style="margin-top:20px">Sample names from dataset</h3>
+    <div id="sample-names" style="font-family:var(--mono);font-size:0.85rem;color:var(--dim)"></div>
+
+    <div class="code-toggle">
+      <button class="btn" onclick="toggleCode(this)">Show Python Code</button>
+      <div class="code-block"><span class="cm"># Tokenizer (lines 23-27)</span>
+uchars = <span class="fn">sorted</span>(<span class="fn">set</span>(<span class="str">''</span>.<span class="fn">join</span>(docs)))
+BOS = <span class="fn">len</span>(uchars)
+vocab_size = <span class="fn">len</span>(uchars) + <span class="num">1</span>
+
+<span class="cm"># Tokenize a document</span>
+tokens = [BOS] + [uchars.<span class="fn">index</span>(ch) <span class="kw">for</span> ch <span class="kw">in</span> doc] + [BOS]</div>
+    </div>
+  </div>
+</section>
+
+<!-- Section 2: Autograd -->
+<section id="sec-autograd">
+  <h2>2. The Value Node & Autograd</h2>
+  <p>Every scalar in the computation is a <strong>Value</strong> node that tracks how it was computed. This forms a directed acyclic graph. <strong>Backward</strong> propagates gradients from the output back through the graph using the chain rule.</p>
+
+  <div class="demo">
+    <div class="btn-group">
+      <button class="btn active" onclick="setAutogradPreset('add', this)">a + b</button>
+      <button class="btn" onclick="setAutogradPreset('mul_add', this)">a*b + c</button>
+      <button class="btn" onclick="setAutogradPreset('softmax', this)">Softmax</button>
+      <button class="btn" onclick="setAutogradPreset('relu', this)">ReLU</button>
+    </div>
+
+    <div id="autograd-sliders"></div>
+
+    <svg id="autograd-svg" viewBox="0 0 560 360"></svg>
+
+    <div class="btn-group" style="margin-top:8px">
+      <button class="btn primary" onclick="runBackward()">Run Backward</button>
+      <button class="btn" onclick="resetAutograd()">Reset</button>
+    </div>
+
+    <div class="code-toggle">
+      <button class="btn" onclick="toggleCode(this)">Show Python Code</button>
+      <div class="code-block"><span class="kw">class</span> <span class="fn">Value</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, data, children=(), local_grads=()):
+        self.data = data
+        self.grad = <span class="num">0</span>
+        self._children = children
+        self._local_grads = local_grads
+
+    <span class="kw">def</span> <span class="fn">backward</span>(self):
+        topo = []
+        visited = <span class="fn">set</span>()
+        <span class="kw">def</span> <span class="fn">build_topo</span>(v):
+            <span class="kw">if</span> v <span class="kw">not in</span> visited:
+                visited.<span class="fn">add</span>(v)
+                <span class="kw">for</span> child <span class="kw">in</span> v._children:
+                    <span class="fn">build_topo</span>(child)
+                topo.<span class="fn">append</span>(v)
+        <span class="fn">build_topo</span>(self)
+        self.grad = <span class="num">1</span>
+        <span class="kw">for</span> v <span class="kw">in</span> <span class="fn">reversed</span>(topo):
+            <span class="kw">for</span> child, local_grad <span class="kw">in</span> <span class="fn">zip</span>(v._children, v._local_grads):
+                child.grad += local_grad * v.grad</div>
+    </div>
+  </div>
+</section>
+
+<!-- Section 3: Parameters -->
+<section id="sec-params">
+  <h2>3. Model Parameters</h2>
+  <p>All knowledge is stored in weight matrices initialized with small random values. Click any matrix to inspect its values as a heatmap.</p>
+
+  <div class="demo">
+    <div class="param-grid" id="param-grid"></div>
+    <div style="margin-top:12px;font-family:var(--mono);font-size:0.85rem">
+      Total parameters: <span style="color:var(--blue)" id="param-count">0</span>
+    </div>
+    <div class="param-detail" id="param-detail" style="display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <strong id="pd-name" style="font-family:var(--mono)"></strong>
+          <span id="pd-shape" style="color:var(--dim);margin-left:8px;font-size:0.8rem"></span>
+        </div>
+        <span id="pd-purpose" style="color:var(--dim);font-size:0.8rem"></span>
+      </div>
+      <canvas id="pd-canvas" style="margin-top:8px"></canvas>
+    </div>
+
+    <div class="code-toggle">
+      <button class="btn" onclick="toggleCode(this)">Show Python Code</button>
+      <div class="code-block"><span class="cm"># Initialize parameters (lines 74-89)</span>
+n_embd = <span class="num">16</span>; n_head = <span class="num">4</span>; n_layer = <span class="num">1</span>; block_size = <span class="num">16</span>
+matrix = <span class="kw">lambda</span> nout, nin, std=<span class="num">0.08</span>: [[<span class="fn">Value</span>(<span class="fn">gauss</span>(<span class="num">0</span>,std)) ...]]
+state_dict = {
+  <span class="str">'wte'</span>: matrix(vocab_size, n_embd),
+  <span class="str">'wpe'</span>: matrix(block_size, n_embd),
+  <span class="str">'lm_head'</span>: matrix(vocab_size, n_embd),
+  <span class="str">'layer0.attn_wq/wk/wv/wo'</span>: matrix(n_embd, n_embd),
+  <span class="str">'layer0.mlp_fc1'</span>: matrix(4*n_embd, n_embd),
+  <span class="str">'layer0.mlp_fc2'</span>: matrix(n_embd, 4*n_embd),
+}</div>
+    </div>
+  </div>
+</section>
+
+<!-- Section 4: Architecture -->
+<section id="sec-arch">
+  <h2>4. The GPT Architecture</h2>
+  <p>The <code>gpt()</code> function processes <strong>one token at a time</strong>, using a KV-cache to remember previous tokens. Step through the forward pass to see each operation and its intermediate values.</p>
+
+  <div class="demo">
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <label>Input word:</label>
+      <input type="text" id="arch-word" value="cat" style="width:120px" onchange="initArchSection()">
+      <label style="margin-left:8px">Position:</label>
+      <select id="arch-pos" onchange="updateArchStep()"></select>
+      <div style="flex:1"></div>
+      <button class="btn" onclick="archStep(-1)">&#9664; Prev</button>
+      <span id="arch-step-label" style="font-family:var(--mono);font-size:0.85rem;min-width:80px;text-align:center">1 / 6</span>
+      <button class="btn" onclick="archStep(1)">Next &#9654;</button>
+    </div>
+
+    <div class="arch-block" id="arch-diagram"></div>
+
+    <div class="arch-step-info" id="arch-info">
+      Click Next to step through the forward pass.
+    </div>
+
+    <div class="code-toggle">
+      <button class="btn" onclick="toggleCode(this)">Show Python Code</button>
+      <div class="code-block"><span class="kw">def</span> <span class="fn">gpt</span>(token_id, pos_id, keys, values):
+    tok_emb = state_dict[<span class="str">'wte'</span>][token_id]
+    pos_emb = state_dict[<span class="str">'wpe'</span>][pos_id]
+    x = [t + p <span class="kw">for</span> t, p <span class="kw">in</span> <span class="fn">zip</span>(tok_emb, pos_emb)]
+    x = <span class="fn">rmsnorm</span>(x)
+    <span class="kw">for</span> li <span class="kw">in</span> <span class="fn">range</span>(n_layer):
+        <span class="cm"># Multi-head attention</span>
+        q = <span class="fn">linear</span>(x, attn_wq); k = ...; v = ...
+        <span class="cm"># ... attention computation ...</span>
+        x = <span class="fn">linear</span>(x_attn, attn_wo)
+        x = [a + b <span class="kw">for</span> a, b <span class="kw">in</span> <span class="fn">zip</span>(x, x_residual)]
+        <span class="cm"># MLP block</span>
+        x = <span class="fn">linear</span>(<span class="fn">rmsnorm</span>(x), mlp_fc1)
+        x = [xi.<span class="fn">relu</span>() <span class="kw">for</span> xi <span class="kw">in</span> x]
+        x = <span class="fn">linear</span>(x, mlp_fc2)
+        x = [a + b <span class="kw">for</span> a, b <span class="kw">in</span> <span class="fn">zip</span>(x, x_residual)]
+    <span class="kw">return</span> <span class="fn">linear</span>(x, lm_head)</div>
+    </div>
+  </div>
+</section>
+
+<!-- Section 5: Attention -->
+<section id="sec-attention">
+  <h2>5. Attention Deep Dive</h2>
+  <p>Multi-head attention lets each position attend to all previous positions. Each of the <strong>4 heads</strong> can learn different patterns. The heatmap shows attention weights — brighter means stronger attention.</p>
+
+  <div class="demo">
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <label>Input word:</label>
+      <input type="text" id="attn-word" value="emma" style="width:120px" onchange="computeAndShowAttention()">
+      <div class="btn-group" id="attn-head-tabs"></div>
+    </div>
+
+    <div id="attn-heatmap-container" style="margin-top:16px;overflow-x:auto"></div>
+
+    <div id="attn-detail" style="margin-top:12px;font-family:var(--mono);font-size:0.8rem;color:var(--dim);min-height:24px"></div>
+
+    <div class="code-toggle">
+      <button class="btn" onclick="toggleCode(this)">Show Python Code</button>
+      <div class="code-block"><span class="cm"># Attention (lines 124-132)</span>
+<span class="kw">for</span> h <span class="kw">in</span> <span class="fn">range</span>(n_head):
+    q_h = q[hs:hs+head_dim]
+    k_h = [ki[hs:hs+head_dim] <span class="kw">for</span> ki <span class="kw">in</span> keys[li]]
+    v_h = [vi[hs:hs+head_dim] <span class="kw">for</span> vi <span class="kw">in</span> values[li]]
+    attn_logits = [<span class="fn">sum</span>(q_h[j] * k_h[t][j] ...) / head_dim**<span class="num">0.5</span>
+                   <span class="kw">for</span> t <span class="kw">in</span> <span class="fn">range</span>(<span class="fn">len</span>(k_h))]
+    attn_weights = <span class="fn">softmax</span>(attn_logits)
+    head_out = [<span class="fn">sum</span>(attn_weights[t] * v_h[t][j] ...)
+                <span class="kw">for</span> j <span class="kw">in</span> <span class="fn">range</span>(head_dim)]</div>
+    </div>
+  </div>
+</section>
+
+<!-- Section 6: Training -->
+<section id="sec-training">
+  <h2>6. Training Loop</h2>
+  <p>Each step: pick a name, predict every next character, compute cross-entropy loss, backpropagate gradients, and update weights with <strong>Adam</strong>. Watch the loss decrease as the model learns.</p>
+
+  <div class="demo">
+    <div class="btn-group">
+      <button class="btn primary" onclick="handleTrain(1)">Train 1 Step</button>
+      <button class="btn" onclick="handleTrain(10)">Train 10</button>
+      <button class="btn" onclick="handleTrain(100)">Train 100</button>
+      <button class="btn" onclick="handleTrain(300)">Train 300</button>
+    </div>
+
+    <div class="train-stats">
+      <div>Step: <span id="train-step">0</span></div>
+      <div>Loss: <span id="train-loss">—</span></div>
+      <div>LR: <span id="train-lr">0.0100</span></div>
+    </div>
+
+    <h3>Current Document</h3>
+    <div class="train-doc" id="train-doc">No training step yet.</div>
+
+    <h3>Loss Curve</h3>
+    <canvas id="loss-canvas"></canvas>
+
+    <div class="code-toggle">
+      <button class="btn" onclick="toggleCode(this)">Show Python Code</button>
+      <div class="code-block"><span class="cm"># Training loop (lines 153-184)</span>
+<span class="kw">for</span> step <span class="kw">in</span> <span class="fn">range</span>(num_steps):
+    doc = docs[step % <span class="fn">len</span>(docs)]
+    tokens = [BOS] + [uchars.<span class="fn">index</span>(ch) <span class="kw">for</span> ch <span class="kw">in</span> doc] + [BOS]
+    <span class="cm"># Forward: compute loss</span>
+    <span class="kw">for</span> pos_id <span class="kw">in</span> <span class="fn">range</span>(n):
+        logits = <span class="fn">gpt</span>(token_id, pos_id, keys, values)
+        probs = <span class="fn">softmax</span>(logits)
+        loss_t = -probs[target_id].<span class="fn">log</span>()
+    loss = (<span class="num">1</span>/n) * <span class="fn">sum</span>(losses)
+    <span class="cm"># Backward</span>
+    loss.<span class="fn">backward</span>()
+    <span class="cm"># Adam update</span>
+    <span class="kw">for</span> i, p <span class="kw">in</span> <span class="fn">enumerate</span>(params):
+        m[i] = beta1*m[i] + (<span class="num">1</span>-beta1)*p.grad
+        v[i] = beta2*v[i] + (<span class="num">1</span>-beta2)*p.grad**<span class="num">2</span>
+        p.data -= lr * m_hat / (v_hat**<span class="num">0.5</span> + eps)</div>
+    </div>
+  </div>
+</section>
+
+<!-- Section 7: Inference -->
+<section id="sec-inference">
+  <h2>7. Inference / Generation</h2>
+  <p>Generate new names by feeding BOS, then sampling tokens one at a time. <strong>Temperature</strong> controls randomness — low = conservative, high = creative.</p>
+
+  <div class="demo">
+    <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+      <div class="slider-row">
+        <label>Temp:</label>
+        <input type="range" id="temp-slider" min="0.1" max="2.0" step="0.1" value="0.5"
+          oninput="document.getElementById('temp-val').textContent=this.value">
+        <span class="slider-val" id="temp-val">0.5</span>
+      </div>
+      <button class="btn primary" onclick="generateAndShow()">Generate Name</button>
+      <button class="btn" onclick="generateBatch()">Generate 10</button>
+    </div>
+
+    <div class="gen-output" id="gen-output"></div>
+
+    <div id="gen-prob-detail" style="margin-top:8px"></div>
+
+    <div class="code-toggle">
+      <button class="btn" onclick="toggleCode(this)">Show Python Code</button>
+      <div class="code-block"><span class="cm"># Inference (lines 186-200)</span>
+temperature = <span class="num">0.5</span>
+<span class="kw">for</span> sample_idx <span class="kw">in</span> <span class="fn">range</span>(<span class="num">20</span>):
+    token_id = BOS
+    <span class="kw">for</span> pos_id <span class="kw">in</span> <span class="fn">range</span>(block_size):
+        logits = <span class="fn">gpt</span>(token_id, pos_id, keys, values)
+        probs = <span class="fn">softmax</span>([l / temperature <span class="kw">for</span> l <span class="kw">in</span> logits])
+        token_id = random.<span class="fn">choices</span>(<span class="fn">range</span>(vocab_size),
+                    weights=[p.data <span class="kw">for</span> p <span class="kw">in</span> probs])[<span class="num">0</span>]
+        <span class="kw">if</span> token_id == BOS: <span class="kw">break</span>
+        sample.<span class="fn">append</span>(uchars[token_id])</div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<script>
+// ==================== CORE ENGINE ====================
+
+// Seeded PRNG (xorshift32)
+class RNG {
+  constructor(seed = 42) { this.s = seed >>> 0 || 1; }
+  next() { let s = this.s; s ^= s << 13; s ^= s >>> 17; s ^= s << 5; this.s = s >>> 0; return (this.s) / 4294967296; }
+  gauss(mean = 0, std = 1) {
+    const u1 = this.next() || 1e-10, u2 = this.next();
+    return mean + std * Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+  }
+  shuffle(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(this.next() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
+}
+
+// Value class — scalar autograd
+class Value {
+  constructor(data, children = [], localGrads = []) {
+    this.data = data; this.grad = 0;
+    this._children = children; this._localGrads = localGrads;
+  }
+  add(o) { o = o instanceof Value ? o : new Value(o); return new Value(this.data + o.data, [this, o], [1, 1]); }
+  mul(o) { o = o instanceof Value ? o : new Value(o); return new Value(this.data * o.data, [this, o], [o.data, this.data]); }
+  pow(n) { return new Value(this.data ** n, [this], [n * this.data ** (n - 1)]); }
+  log() { return new Value(Math.log(this.data), [this], [1 / this.data]); }
+  exp() { const e = Math.exp(this.data); return new Value(e, [this], [e]); }
+  relu() { return new Value(Math.max(0, this.data), [this], [this.data > 0 ? 1 : 0]); }
+  neg() { return this.mul(-1); }
+  sub(o) { return this.add(o instanceof Value ? o.neg() : new Value(-o)); }
+  div(o) { return o instanceof Value ? this.mul(o.pow(-1)) : this.mul(1 / o); }
+  backward() {
+    const topo = [], visited = new Set();
+    const build = v => { if (!visited.has(v)) { visited.add(v); v._children.forEach(build); topo.push(v); } };
+    build(this); this.grad = 1;
+    for (let i = topo.length - 1; i >= 0; i--) {
+      const v = topo[i];
+      for (let j = 0; j < v._children.length; j++) v._children[j].grad += v._localGrads[j] * v.grad;
+    }
+    return topo;
+  }
+}
+
+// Model constants
+const N_EMBD = 16, N_HEAD = 4, N_LAYER = 1, BLOCK_SIZE = 16, HEAD_DIM = N_EMBD / N_HEAD;
+const UCHARS = 'abcdefghijklmnopqrstuvwxyz'.split('');
+const BOS = 26, VOCAB_SIZE = 27;
+
+// Embedded dataset
+const NAMES = [
+  'emma','olivia','ava','isabella','sophia','mia','charlotte','amelia','harper','evelyn',
+  'abigail','emily','elizabeth','mila','ella','avery','sofia','camila','aria','scarlett',
+  'penelope','layla','chloe','victoria','madison','eleanor','grace','nora','riley','zoey',
+  'hannah','hazel','lily','ellie','violet','lillian','zoe','stella','aurora','natalie',
+  'emilia','everly','leah','aubrey','willow','addison','lucy','audrey','bella','nova',
+  'liam','noah','oliver','james','elijah','william','henry','lucas','benjamin','theodore',
+  'jack','levi','alexander','mason','ethan','daniel','jacob','logan','jackson','sebastian',
+  'aiden','owen','samuel','ryan','nathan','caleb','christian','hunter','eli','andrew',
+  'maya','sarah','madelyn','adeline','ariana','eliana','brianna','sadie','alexis','nevaeh',
+  'allison','anna','caroline','genesis','aaliyah','kennedy','kinsley','claire','savannah','brooklyn'
+];
+
+// Model functions
+function linear(x, w) {
+  return w.map(wo => {
+    let s = wo[0].mul(x[0]);
+    for (let i = 1; i < x.length; i++) s = s.add(wo[i].mul(x[i]));
+    return s;
+  });
+}
+
+function softmaxV(logits) {
+  const mx = Math.max(...logits.map(v => v.data));
+  const exps = logits.map(v => v.sub(mx).exp());
+  let total = exps[0];
+  for (let i = 1; i < exps.length; i++) total = total.add(exps[i]);
+  return exps.map(e => e.div(total));
+}
+
+function rmsnorm(x) {
+  let ms = x[0].mul(x[0]);
+  for (let i = 1; i < x.length; i++) ms = ms.add(x[i].mul(x[i]));
+  ms = ms.div(x.length);
+  const scale = ms.add(1e-5).pow(-0.5);
+  return x.map(xi => xi.mul(scale));
+}
+
+// Numeric (non-autograd) versions for fast inference
+function linearN(x, w) {
+  return w.map(wo => { let s = 0; for (let i = 0; i < x.length; i++) s += wo[i] * x[i]; return s; });
+}
+
+function softmaxN(logits) {
+  const mx = Math.max(...logits);
+  const exps = logits.map(v => Math.exp(v - mx));
+  const total = exps.reduce((a, b) => a + b);
+  return exps.map(e => e / total);
+}
+
+function rmsnormN(x) {
+  let ms = 0; for (let i = 0; i < x.length; i++) ms += x[i] * x[i];
+  ms /= x.length;
+  const scale = (ms + 1e-5) ** -0.5;
+  return x.map(xi => xi * scale);
+}
+
+function gptNumeric(tokenId, posId, kvKeys, kvValues, sd) {
+  const tokEmb = sd.wte[tokenId].map(v => v.data);
+  const posEmb = sd.wpe[posId].map(v => v.data);
+  let x = tokEmb.map((t, i) => t + posEmb[i]);
+  x = rmsnormN(x);
+  for (let li = 0; li < N_LAYER; li++) {
+    const xr = x.slice();
+    x = rmsnormN(x);
+    const q = linearN(x, sd[`layer${li}_attn_wq`].map(r => r.map(v => v.data)));
+    const k = linearN(x, sd[`layer${li}_attn_wk`].map(r => r.map(v => v.data)));
+    const v = linearN(x, sd[`layer${li}_attn_wv`].map(r => r.map(v => v.data)));
+    kvKeys[li].push(k); kvValues[li].push(v);
+    const xAttn = [];
+    for (let h = 0; h < N_HEAD; h++) {
+      const hs = h * HEAD_DIM;
+      const qH = q.slice(hs, hs + HEAD_DIM);
+      const kH = kvKeys[li].map(ki => ki.slice(hs, hs + HEAD_DIM));
+      const vH = kvValues[li].map(vi => vi.slice(hs, hs + HEAD_DIM));
+      const al = kH.map(kht => {
+        let d = 0; for (let j = 0; j < HEAD_DIM; j++) d += qH[j] * kht[j]; return d / Math.sqrt(HEAD_DIM);
+      });
+      const aw = softmaxN(al);
+      for (let j = 0; j < HEAD_DIM; j++) {
+        let s = 0; for (let t = 0; t < vH.length; t++) s += aw[t] * vH[t][j]; xAttn.push(s);
+      }
+    }
+    x = linearN(xAttn, sd[`layer${li}_attn_wo`].map(r => r.map(v => v.data)));
+    x = x.map((a, i) => a + xr[i]);
+    const xr2 = x.slice();
+    x = rmsnormN(x);
+    x = linearN(x, sd[`layer${li}_mlp_fc1`].map(r => r.map(v => v.data)));
+    x = x.map(xi => Math.max(0, xi));
+    x = linearN(x, sd[`layer${li}_mlp_fc2`].map(r => r.map(v => v.data)));
+    x = x.map((a, i) => a + xr2[i]);
+  }
+  return linearN(x, sd.lm_head.map(r => r.map(v => v.data)));
+}
+
+// Full autograd forward for a single token
+function gptForward(tokenId, posId, kvKeys, kvValues, sd) {
+  let x = sd.wte[tokenId].map((t, i) => t.add(sd.wpe[posId][i]));
+  x = rmsnorm(x);
+  for (let li = 0; li < N_LAYER; li++) {
+    const xr = x;
+    x = rmsnorm(x);
+    const q = linear(x, sd[`layer${li}_attn_wq`]);
+    const k = linear(x, sd[`layer${li}_attn_wk`]);
+    const v = linear(x, sd[`layer${li}_attn_wv`]);
+    kvKeys[li].push(k); kvValues[li].push(v);
+    const xAttn = [];
+    for (let h = 0; h < N_HEAD; h++) {
+      const hs = h * HEAD_DIM;
+      const qH = q.slice(hs, hs + HEAD_DIM);
+      const kH = kvKeys[li].map(ki => ki.slice(hs, hs + HEAD_DIM));
+      const vH = kvValues[li].map(vi => vi.slice(hs, hs + HEAD_DIM));
+      const al = kH.map(kht => {
+        let d = qH[0].mul(kht[0]);
+        for (let j = 1; j < HEAD_DIM; j++) d = d.add(qH[j].mul(kht[j]));
+        return d.mul(1 / Math.sqrt(HEAD_DIM));
+      });
+      const aw = softmaxV(al);
+      for (let j = 0; j < HEAD_DIM; j++) {
+        let s = aw[0].mul(vH[0][j]);
+        for (let t = 1; t < vH.length; t++) s = s.add(aw[t].mul(vH[t][j]));
+        xAttn.push(s);
+      }
+    }
+    x = linear(xAttn, sd[`layer${li}_attn_wo`]);
+    x = x.map((a, i) => a.add(xr[i]));
+    const xr2 = x;
+    x = rmsnorm(x);
+    x = linear(x, sd[`layer${li}_mlp_fc1`]);
+    x = x.map(xi => xi.relu());
+    x = linear(x, sd[`layer${li}_mlp_fc2`]);
+    x = x.map((a, i) => a.add(xr2[i]));
+  }
+  return linear(x, sd.lm_head);
+}
+
+// ==================== MODEL STATE ====================
+
+let stateDict = {};
+let params = [];
+let adamM = [], adamV = [];
+let trainStepNum = 0;
+let lossHistory = [];
+let initialWeights = null;
+let rng = new RNG(42);
+let docsShuffled = [];
+
+const PARAM_INFO = {
+  wte: { shape: [VOCAB_SIZE, N_EMBD], purpose: 'Token embeddings' },
+  wpe: { shape: [BLOCK_SIZE, N_EMBD], purpose: 'Position embeddings' },
+  lm_head: { shape: [VOCAB_SIZE, N_EMBD], purpose: 'Output projection to logits' },
+  layer0_attn_wq: { shape: [N_EMBD, N_EMBD], purpose: 'Query projection' },
+  layer0_attn_wk: { shape: [N_EMBD, N_EMBD], purpose: 'Key projection' },
+  layer0_attn_wv: { shape: [N_EMBD, N_EMBD], purpose: 'Value projection' },
+  layer0_attn_wo: { shape: [N_EMBD, N_EMBD], purpose: 'Attention output projection' },
+  layer0_mlp_fc1: { shape: [4 * N_EMBD, N_EMBD], purpose: 'MLP expand (16 -> 64)' },
+  layer0_mlp_fc2: { shape: [N_EMBD, 4 * N_EMBD], purpose: 'MLP contract (64 -> 16)' },
+};
+
+function makeMatrix(rng, nout, nin, std = 0.08) {
+  const m = [];
+  for (let i = 0; i < nout; i++) {
+    const row = [];
+    for (let j = 0; j < nin; j++) row.push(new Value(rng.gauss(0, std)));
+    m.push(row);
+  }
+  return m;
+}
+
+function initModel() {
+  rng = new RNG(42);
+  docsShuffled = [...NAMES];
+  rng.shuffle(docsShuffled);
+
+  stateDict = {
+    wte: makeMatrix(rng, VOCAB_SIZE, N_EMBD),
+    wpe: makeMatrix(rng, BLOCK_SIZE, N_EMBD),
+    lm_head: makeMatrix(rng, VOCAB_SIZE, N_EMBD),
+  };
+  for (let i = 0; i < N_LAYER; i++) {
+    stateDict[`layer${i}_attn_wq`] = makeMatrix(rng, N_EMBD, N_EMBD);
+    stateDict[`layer${i}_attn_wk`] = makeMatrix(rng, N_EMBD, N_EMBD);
+    stateDict[`layer${i}_attn_wv`] = makeMatrix(rng, N_EMBD, N_EMBD);
+    stateDict[`layer${i}_attn_wo`] = makeMatrix(rng, N_EMBD, N_EMBD);
+    stateDict[`layer${i}_mlp_fc1`] = makeMatrix(rng, 4 * N_EMBD, N_EMBD);
+    stateDict[`layer${i}_mlp_fc2`] = makeMatrix(rng, N_EMBD, 4 * N_EMBD);
+  }
+  params = [];
+  for (const mat of Object.values(stateDict)) for (const row of mat) for (const p of row) params.push(p);
+  adamM = new Float64Array(params.length);
+  adamV = new Float64Array(params.length);
+  trainStepNum = 0;
+  lossHistory = [];
+}
+
+function saveCurrentWeights() {
+  return params.map(p => p.data);
+}
+
+function loadWeights(saved) {
+  for (let i = 0; i < params.length; i++) params[i].data = saved[i];
+}
+
+// ==================== TRAINING ====================
+
+const LR = 0.01, BETA1 = 0.85, BETA2 = 0.99, EPS = 1e-8, NUM_STEPS = 1000;
+
+function trainOneStep() {
+  const doc = docsShuffled[trainStepNum % docsShuffled.length];
+  const tokens = [BOS, ...doc.split('').map(ch => UCHARS.indexOf(ch)), BOS];
+  const n = Math.min(BLOCK_SIZE, tokens.length - 1);
+
+  const kvK = Array.from({ length: N_LAYER }, () => []);
+  const kvV = Array.from({ length: N_LAYER }, () => []);
+  const losses = [];
+
+  for (let pos = 0; pos < n; pos++) {
+    const logits = gptForward(tokens[pos], pos, kvK, kvV, stateDict);
+    const probs = softmaxV(logits);
+    losses.push(probs[tokens[pos + 1]].log().neg());
+  }
+
+  let loss = losses[0];
+  for (let i = 1; i < losses.length; i++) loss = loss.add(losses[i]);
+  loss = loss.mul(1 / n);
+  loss.backward();
+
+  const lrT = LR * (1 - trainStepNum / NUM_STEPS);
+  for (let i = 0; i < params.length; i++) {
+    const g = params[i].grad;
+    adamM[i] = BETA1 * adamM[i] + (1 - BETA1) * g;
+    adamV[i] = BETA2 * adamV[i] + (1 - BETA2) * g * g;
+    const mHat = adamM[i] / (1 - BETA1 ** (trainStepNum + 1));
+    const vHat = adamV[i] / (1 - BETA2 ** (trainStepNum + 1));
+    params[i].data -= lrT * mHat / (Math.sqrt(vHat) + EPS);
+    params[i].grad = 0;
+  }
+
+  trainStepNum++;
+  lossHistory.push(loss.data);
+  return { loss: loss.data, doc, tokens, n, lrT };
+}
+
+// ==================== SECTION 1: TOKENIZER ====================
+
+function initTokenizerSection() {
+  const table = document.getElementById('token-table');
+  table.innerHTML = '';
+  UCHARS.forEach((ch, i) => {
+    const cell = document.createElement('div');
+    cell.className = 'token-cell';
+    cell.innerHTML = `<span class="c">${ch}</span><span class="i">${i}</span>`;
+    table.appendChild(cell);
+  });
+  // BOS cell
+  const bos = document.createElement('div');
+  bos.className = 'token-cell';
+  bos.style.borderColor = 'var(--orange)';
+  bos.innerHTML = `<span class="c" style="color:var(--orange);font-size:0.65rem">BOS</span><span class="i">${BOS}</span>`;
+  table.appendChild(bos);
+
+  // Sample names
+  const el = document.getElementById('sample-names');
+  el.textContent = NAMES.slice(0, 20).join(', ') + ', ...';
+
+  updateTokenizer();
+}
+
+function updateTokenizer() {
+  const text = document.getElementById('tok-input').value.toLowerCase().replace(/[^a-z]/g, '');
+  const out = document.getElementById('tok-output');
+  if (!text) {
+    out.innerHTML = '<span style="color:var(--dim);font-size:0.85rem">Type a name above to see its tokens</span>';
+    return;
+  }
+  const ids = [BOS, ...text.split('').map(ch => UCHARS.indexOf(ch)), BOS];
+  const chars = ['BOS', ...text.split(''), 'BOS'];
+  out.innerHTML = ids.map((id, i) => {
+    const isBos = id === BOS;
+    return `<span class="token-chip ${isBos ? 'bos' : ''}"><span class="char">${chars[i]}</span><span class="id">${id}</span></span>`;
+  }).join('');
+}
+
+// ==================== SECTION 2: AUTOGRAD ====================
+
+let autogradState = { preset: 'add', nodes: [], edges: [], topo: null, animating: false };
+
+const AUTOGRAD_PRESETS = {
+  add: {
+    inputs: [{ name: 'a', def: 2 }, { name: 'b', def: 3 }],
+    build: ([a, b]) => {
+      const out = a.add(b);
+      return {
+        nodes: [
+          { v: a, label: 'a', x: 140, y: 60 },
+          { v: b, label: 'b', x: 420, y: 60 },
+          { v: out, label: 'a + b', x: 280, y: 260 },
+        ],
+        edges: [[0, 2], [1, 2]]
+      };
+    }
+  },
+  mul_add: {
+    inputs: [{ name: 'a', def: 2 }, { name: 'b', def: 3 }, { name: 'c', def: 1 }],
+    build: ([a, b, c]) => {
+      const ab = a.mul(b);
+      const out = ab.add(c);
+      return {
+        nodes: [
+          { v: a, label: 'a', x: 80, y: 60 },
+          { v: b, label: 'b', x: 240, y: 60 },
+          { v: c, label: 'c', x: 440, y: 60 },
+          { v: ab, label: 'a * b', x: 160, y: 180 },
+          { v: out, label: 'a*b + c', x: 280, y: 300 },
+        ],
+        edges: [[0, 3], [1, 3], [3, 4], [2, 4]]
+      };
+    }
+  },
+  softmax: {
+    inputs: [{ name: 'a', def: 2 }, { name: 'b', def: 1 }],
+    build: ([a, b]) => {
+      const ea = a.exp();
+      const eb = b.exp();
+      const total = ea.add(eb);
+      const out = ea.div(total);
+      const totalInv = total.pow(-1);
+      return {
+        nodes: [
+          { v: a, label: 'a', x: 100, y: 40 },
+          { v: b, label: 'b', x: 460, y: 40 },
+          { v: ea, label: 'exp(a)', x: 100, y: 140 },
+          { v: eb, label: 'exp(b)', x: 460, y: 140 },
+          { v: total, label: 'exp(a)+exp(b)', x: 280, y: 210 },
+          { v: totalInv, label: '1/total', x: 380, y: 270 },
+          { v: out, label: 'softmax(a)', x: 220, y: 320 },
+        ],
+        edges: [[0, 2], [1, 3], [2, 4], [3, 4], [4, 5], [2, 6], [5, 6]]
+      };
+    }
+  },
+  relu: {
+    inputs: [{ name: 'a', def: -1.5 }, { name: 'b', def: 2 }],
+    build: ([a, b]) => {
+      const ab = a.mul(b);
+      const out = ab.relu();
+      return {
+        nodes: [
+          { v: a, label: 'a', x: 120, y: 60 },
+          { v: b, label: 'b', x: 400, y: 60 },
+          { v: ab, label: 'a * b', x: 260, y: 180 },
+          { v: out, label: 'relu(a*b)', x: 260, y: 300 },
+        ],
+        edges: [[0, 2], [1, 2], [2, 3]]
+      };
+    }
+  }
+};
+
+function setAutogradPreset(name, btnEl) {
+  document.querySelectorAll('#sec-autograd .btn-group .btn').forEach(b => b.classList.remove('active'));
+  if (btnEl) btnEl.classList.add('active');
+  autogradState.preset = name;
+  resetAutograd();
+}
+
+function resetAutograd() {
+  autogradState.animating = false;
+  const preset = AUTOGRAD_PRESETS[autogradState.preset];
+
+  // Build sliders
+  const sliderDiv = document.getElementById('autograd-sliders');
+  sliderDiv.innerHTML = '';
+  preset.inputs.forEach((inp, i) => {
+    const row = document.createElement('div');
+    row.className = 'slider-row';
+    row.innerHTML = `<label>${inp.name}:</label>
+      <input type="range" min="-4" max="4" step="0.1" value="${inp.def}" id="ag-slider-${i}"
+        oninput="updateAutogradForward()">
+      <span class="slider-val" id="ag-val-${i}">${inp.def.toFixed(1)}</span>`;
+    sliderDiv.appendChild(row);
+  });
+  updateAutogradForward();
+}
+
+function updateAutogradForward() {
+  const preset = AUTOGRAD_PRESETS[autogradState.preset];
+  const vals = preset.inputs.map((_, i) => {
+    const slider = document.getElementById(`ag-slider-${i}`);
+    const val = parseFloat(slider.value);
+    document.getElementById(`ag-val-${i}`).textContent = val.toFixed(1);
+    return new Value(val);
+  });
+  const graph = preset.build(vals);
+  autogradState.nodes = graph.nodes;
+  autogradState.edges = graph.edges;
+  autogradState.topo = null;
+  renderAutogradSVG(false);
+}
+
+function renderAutogradSVG(showGrad) {
+  const svg = document.getElementById('autograd-svg');
+  const { nodes, edges } = autogradState;
+  let html = '';
+  // Edges
+  edges.forEach(([from, to]) => {
+    const f = nodes[from], t = nodes[to];
+    const highlighted = showGrad && f.v.grad !== 0 && t.v.grad !== 0;
+    html += `<line class="edge ${highlighted ? 'highlighted' : ''}" x1="${f.x}" y1="${f.y + 20}" x2="${t.x}" y2="${t.y - 20}"/>`;
+  });
+  // Arrow markers
+  // Nodes
+  nodes.forEach((n, i) => {
+    const hl = showGrad && n.v.grad !== 0;
+    html += `<g class="node ${hl ? 'highlighted' : ''}" transform="translate(${n.x},${n.y})">
+      <circle r="28"/>
+      <text class="label" y="-8">${n.label}</text>
+      <text class="val" y="8">${n.v.data.toFixed(2)}</text>
+      <text class="grad" y="48">grad: ${n.v.grad.toFixed(3)}</text>
+    </g>`;
+  });
+  svg.innerHTML = html;
+}
+
+async function runBackward() {
+  if (autogradState.animating) return;
+  autogradState.animating = true;
+  // Reset grads
+  autogradState.nodes.forEach(n => n.v.grad = 0);
+  // Find the output node (last one)
+  const output = autogradState.nodes[autogradState.nodes.length - 1].v;
+  const topo = [];
+  const visited = new Set();
+  const buildTopo = v => { if (!visited.has(v)) { visited.add(v); v._children.forEach(buildTopo); topo.push(v); } };
+  buildTopo(output);
+  output.grad = 1;
+
+  // Animate step by step
+  for (let i = topo.length - 1; i >= 0; i--) {
+    const v = topo[i];
+    for (let j = 0; j < v._children.length; j++) v._children[j].grad += v._localGrads[j] * v.grad;
+    renderAutogradSVG(true);
+    await new Promise(r => setTimeout(r, 400));
+    if (!autogradState.animating) return;
+  }
+  autogradState.animating = false;
+}
+
+// ==================== SECTION 3: PARAMETERS ====================
+
+function initParamsSection() {
+  const grid = document.getElementById('param-grid');
+  grid.innerHTML = '';
+  let total = 0;
+
+  for (const [name, info] of Object.entries(PARAM_INFO)) {
+    const [rows, cols] = info.shape;
+    total += rows * cols;
+    const block = document.createElement('div');
+    block.className = 'param-block';
+    block.onclick = () => showParamDetail(name);
+
+    // Mini heatmap
+    const cw = Math.min(cols * 3, 60), ch = Math.min(rows * 3, 60);
+    const canvas = document.createElement('canvas');
+    canvas.width = cw; canvas.height = ch;
+    canvas.style.width = cw + 'px'; canvas.style.height = ch + 'px';
+    const ctx = canvas.getContext('2d');
+    const mat = stateDict[name];
+    if (mat) {
+      const pw = cw / cols, ph = ch / rows;
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+        const v = mat[r][c].data;
+        const intensity = Math.min(1, Math.abs(v) / 0.3);
+        ctx.fillStyle = v >= 0 ? `rgba(96,165,250,${intensity})` : `rgba(248,113,113,${intensity})`;
+        ctx.fillRect(c * pw, r * ph, pw, ph);
+      }
+    }
+    block.appendChild(canvas);
+    block.innerHTML += `<div class="name">${name}</div><div class="shape">${rows} x ${cols}</div>`;
+    grid.appendChild(block);
+  }
+
+  document.getElementById('param-count').textContent = total.toLocaleString();
+}
+
+function showParamDetail(name) {
+  document.querySelectorAll('.param-block').forEach(b => b.classList.remove('selected'));
+  event.currentTarget.classList.add('selected');
+
+  const detail = document.getElementById('param-detail');
+  detail.style.display = 'block';
+  const info = PARAM_INFO[name];
+  document.getElementById('pd-name').textContent = name;
+  document.getElementById('pd-shape').textContent = `(${info.shape.join(' x ')})`;
+  document.getElementById('pd-purpose').textContent = info.purpose;
+
+  const mat = stateDict[name];
+  const [rows, cols] = info.shape;
+  const scale = Math.max(1, Math.min(8, Math.floor(400 / cols)));
+  const canvas = document.getElementById('pd-canvas');
+  canvas.width = cols * scale;
+  canvas.height = rows * scale;
+  canvas.style.width = (cols * scale) + 'px';
+  canvas.style.height = Math.min(rows * scale, 300) + 'px';
+  const ctx = canvas.getContext('2d');
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    const v = mat[r][c].data;
+    const intensity = Math.min(1, Math.abs(v) / 0.5);
+    ctx.fillStyle = v >= 0 ? `rgba(96,165,250,${intensity})` : `rgba(248,113,113,${intensity})`;
+    ctx.fillRect(c * scale, r * scale, scale, scale);
+  }
+}
+
+// ==================== SECTION 4: ARCHITECTURE ====================
+
+let archState = { word: 'cat', step: 0, trace: null };
+
+const ARCH_STEPS = [
+  { label: 'Embedding', box: 'embed', desc: 'Look up token and position embeddings, add them, apply RMSNorm.' },
+  { label: 'Q / K / V Projection', box: 'attn', desc: 'Project the normalized vector into Query, Key, and Value vectors using learned weight matrices.' },
+  { label: 'Attention Scores', box: 'attn', desc: 'For each head: compute dot products between Query and all cached Keys, divide by sqrt(head_dim), apply softmax.' },
+  { label: 'Attention Output', box: 'attn', desc: 'Weighted sum of Values using attention weights, concatenate heads, project through Wo, add residual.' },
+  { label: 'MLP Block', box: 'mlp', desc: 'RMSNorm, expand through fc1 (16->64), ReLU activation, contract through fc2 (64->16), add residual.' },
+  { label: 'Output Logits', box: 'out', desc: 'Project the final hidden state through lm_head to get logits (scores) for each of the 27 possible next tokens.' },
+];
+
+function initArchSection() {
+  const word = document.getElementById('arch-word').value.toLowerCase().replace(/[^a-z]/g, '') || 'cat';
+  archState.word = word;
+  archState.step = 0;
+
+  // Position selector
+  const sel = document.getElementById('arch-pos');
+  sel.innerHTML = '';
+  const tokens = ['BOS', ...word.split('')];
+  tokens.forEach((t, i) => {
+    const opt = document.createElement('option');
+    opt.value = i; opt.textContent = `pos ${i}: ${t}`;
+    sel.appendChild(opt);
+  });
+
+  // Compute trace for current position
+  computeArchTrace();
+  renderArchDiagram();
+}
+
+function computeArchTrace() {
+  const word = archState.word;
+  const posIdx = parseInt(document.getElementById('arch-pos').value) || 0;
+  const tokens = [BOS, ...word.split('').map(ch => UCHARS.indexOf(ch)), BOS];
+
+  // Run forward up to the selected position, capturing intermediates
+  const kvK = Array.from({ length: N_LAYER }, () => []);
+  const kvV = Array.from({ length: N_LAYER }, () => []);
+  const trace = {};
+
+  for (let pos = 0; pos <= posIdx; pos++) {
+    const tid = tokens[pos];
+    const tokEmb = stateDict.wte[tid].map(v => v.data);
+    const posEmb = stateDict.wpe[pos].map(v => v.data);
+    let x = tokEmb.map((t, i) => t + posEmb[i]);
+    x = rmsnormN(x);
+
+    if (pos === posIdx) {
+      trace.tokEmb = tokEmb.slice(0, 8);
+      trace.posEmb = posEmb.slice(0, 8);
+      trace.combined = x.slice(0, 8);
+    }
+
+    for (let li = 0; li < N_LAYER; li++) {
+      const xr = x.slice();
+      x = rmsnormN(x);
+      const q = linearN(x, stateDict[`layer${li}_attn_wq`].map(r => r.map(v => v.data)));
+      const k = linearN(x, stateDict[`layer${li}_attn_wk`].map(r => r.map(v => v.data)));
+      const v = linearN(x, stateDict[`layer${li}_attn_wv`].map(r => r.map(v => v.data)));
+      kvK[li].push(k); kvV[li].push(v);
+
+      if (pos === posIdx) {
+        trace.q = q.slice(0, 8);
+        trace.k = k.slice(0, 8);
+        trace.v = v.slice(0, 8);
+      }
+
+      const xAttn = [];
+      const attnWeightsAll = [];
+      for (let h = 0; h < N_HEAD; h++) {
+        const hs = h * HEAD_DIM;
+        const qH = q.slice(hs, hs + HEAD_DIM);
+        const kH = kvK[li].map(ki => ki.slice(hs, hs + HEAD_DIM));
+        const vH = kvV[li].map(vi => vi.slice(hs, hs + HEAD_DIM));
+        const al = kH.map(kht => { let d = 0; for (let j = 0; j < HEAD_DIM; j++) d += qH[j] * kht[j]; return d / Math.sqrt(HEAD_DIM); });
+        const aw = softmaxN(al);
+        attnWeightsAll.push(aw);
+        for (let j = 0; j < HEAD_DIM; j++) { let s = 0; for (let t = 0; t < vH.length; t++) s += aw[t] * vH[t][j]; xAttn.push(s); }
+      }
+
+      if (pos === posIdx) {
+        trace.attnWeights = attnWeightsAll;
+        trace.attnOut = xAttn.slice(0, 8);
+      }
+
+      x = linearN(xAttn, stateDict[`layer${li}_attn_wo`].map(r => r.map(v => v.data)));
+      x = x.map((a, i) => a + xr[i]);
+      const xr2 = x.slice();
+      x = rmsnormN(x);
+
+      if (pos === posIdx) trace.mlpIn = x.slice(0, 8);
+
+      x = linearN(x, stateDict[`layer${li}_mlp_fc1`].map(r => r.map(v => v.data)));
+      x = x.map(xi => Math.max(0, xi));
+      x = linearN(x, stateDict[`layer${li}_mlp_fc2`].map(r => r.map(v => v.data)));
+      x = x.map((a, i) => a + xr2[i]);
+
+      if (pos === posIdx) trace.mlpOut = x.slice(0, 8);
+    }
+
+    if (pos === posIdx) {
+      const logits = linearN(x, stateDict.lm_head.map(r => r.map(v => v.data)));
+      const probs = softmaxN(logits);
+      trace.logits = logits;
+      trace.probs = probs;
+      trace.topTokens = probs.map((p, i) => ({ p, i })).sort((a, b) => b.p - a.p).slice(0, 5);
+    }
+  }
+  archState.trace = trace;
+}
+
+function renderArchDiagram() {
+  const step = archState.step;
+  const diagram = document.getElementById('arch-diagram');
+  const boxes = ARCH_STEPS.map((s, i) => {
+    const active = i === step ? 'active' : '';
+    return `<div class="arch-box ${s.box} ${active}">${s.label}</div>
+      ${i < ARCH_STEPS.length - 1 ? '<div class="arch-arrow">&#9660;</div>' : ''}
+      ${i === 0 ? '<div class="arch-residual">+ residual skip</div>' : ''}`;
+  });
+  diagram.innerHTML = boxes.join('');
+  updateArchInfo();
+}
+
+function updateArchInfo() {
+  const info = document.getElementById('arch-info');
+  const s = ARCH_STEPS[archState.step];
+  const t = archState.trace;
+  if (!t) { info.textContent = 'Compute trace first.'; return; }
+
+  let vals = '';
+  switch (archState.step) {
+    case 0: vals = `tok_emb[0:8] = [${t.tokEmb.map(v => v.toFixed(3)).join(', ')}]\npos_emb[0:8] = [${t.posEmb.map(v => v.toFixed(3)).join(', ')}]\nafter norm[0:8] = [${t.combined.map(v => v.toFixed(3)).join(', ')}]`; break;
+    case 1: vals = `q[0:8] = [${t.q.map(v => v.toFixed(3)).join(', ')}]\nk[0:8] = [${t.k.map(v => v.toFixed(3)).join(', ')}]\nv[0:8] = [${t.v.map(v => v.toFixed(3)).join(', ')}]`; break;
+    case 2: vals = t.attnWeights.map((w, h) => `head ${h}: weights = [${w.map(v => v.toFixed(3)).join(', ')}]`).join('\n'); break;
+    case 3: vals = `attn_output[0:8] = [${t.attnOut.map(v => v.toFixed(3)).join(', ')}]`; break;
+    case 4: vals = `mlp_in[0:8] = [${t.mlpIn.map(v => v.toFixed(3)).join(', ')}]\nmlp_out[0:8] = [${t.mlpOut.map(v => v.toFixed(3)).join(', ')}]`; break;
+    case 5:
+      vals = `top predictions:\n` + t.topTokens.map(({ p, i }) =>
+        `  ${i === BOS ? 'BOS' : UCHARS[i]} (${(p * 100).toFixed(1)}%)`).join('\n');
+      break;
+  }
+  info.innerHTML = `<strong style="color:var(--cyan)">${s.label}</strong> — ${s.desc}\n\n<span style="color:var(--blue)">${vals}</span>`;
+  info.style.whiteSpace = 'pre-wrap';
+}
+
+function archStep(dir) {
+  archState.step = Math.max(0, Math.min(ARCH_STEPS.length - 1, archState.step + dir));
+  document.getElementById('arch-step-label').textContent = `${archState.step + 1} / ${ARCH_STEPS.length}`;
+  renderArchDiagram();
+}
+
+function updateArchStep() { computeArchTrace(); renderArchDiagram(); }
+
+// ==================== SECTION 5: ATTENTION ====================
+
+let attnState = { weights: null, activeHead: 0 };
+
+function computeAndShowAttention() {
+  const word = document.getElementById('attn-word').value.toLowerCase().replace(/[^a-z]/g, '') || 'emma';
+  const tokens = [BOS, ...word.split('').map(ch => UCHARS.indexOf(ch)), BOS];
+  const labels = ['BOS', ...word.split(''), 'BOS'];
+  const n = tokens.length - 1;
+
+  const kvK = Array.from({ length: N_LAYER }, () => []);
+  const kvV = Array.from({ length: N_LAYER }, () => []);
+  const allWeights = []; // [pos][head][key_pos]
+
+  for (let pos = 0; pos < n; pos++) {
+    const tid = tokens[pos];
+    const tokEmb = stateDict.wte[tid].map(v => v.data);
+    const posEmb = stateDict.wpe[pos].map(v => v.data);
+    let x = tokEmb.map((t, i) => t + posEmb[i]);
+    x = rmsnormN(x);
+
+    for (let li = 0; li < N_LAYER; li++) {
+      const xr = x.slice();
+      x = rmsnormN(x);
+      const q = linearN(x, stateDict[`layer${li}_attn_wq`].map(r => r.map(v => v.data)));
+      const k = linearN(x, stateDict[`layer${li}_attn_wk`].map(r => r.map(v => v.data)));
+      const v = linearN(x, stateDict[`layer${li}_attn_wv`].map(r => r.map(v => v.data)));
+      kvK[li].push(k); kvV[li].push(v);
+
+      const headWeights = [];
+      const xAttn = [];
+      for (let h = 0; h < N_HEAD; h++) {
+        const hs = h * HEAD_DIM;
+        const qH = q.slice(hs, hs + HEAD_DIM);
+        const kH = kvK[li].map(ki => ki.slice(hs, hs + HEAD_DIM));
+        const vH = kvV[li].map(vi => vi.slice(hs, hs + HEAD_DIM));
+        const al = kH.map(kht => { let d = 0; for (let j = 0; j < HEAD_DIM; j++) d += qH[j] * kht[j]; return d / Math.sqrt(HEAD_DIM); });
+        const aw = softmaxN(al);
+        headWeights.push(aw);
+        for (let j = 0; j < HEAD_DIM; j++) { let s = 0; for (let t = 0; t < vH.length; t++) s += aw[t] * vH[t][j]; xAttn.push(s); }
+      }
+      allWeights.push(headWeights);
+
+      x = linearN(xAttn, stateDict[`layer${li}_attn_wo`].map(r => r.map(v => v.data)));
+      x = x.map((a, i) => a + xr[i]);
+      const xr2 = x.slice();
+      x = rmsnormN(x);
+      x = linearN(x, stateDict[`layer${li}_mlp_fc1`].map(r => r.map(v => v.data)));
+      x = x.map(xi => Math.max(0, xi));
+      x = linearN(x, stateDict[`layer${li}_mlp_fc2`].map(r => r.map(v => v.data)));
+      x = x.map((a, i) => a + xr2[i]);
+    }
+  }
+
+  attnState.weights = allWeights;
+  attnState.labels = labels.slice(0, n);
+  attnState.n = n;
+
+  // Head tabs
+  const tabs = document.getElementById('attn-head-tabs');
+  tabs.innerHTML = '';
+  for (let h = 0; h < N_HEAD; h++) {
+    const btn = document.createElement('button');
+    btn.className = `btn ${h === attnState.activeHead ? 'active' : ''}`;
+    btn.textContent = `Head ${h + 1}`;
+    btn.onclick = () => { attnState.activeHead = h; computeAndShowAttention(); };
+    tabs.appendChild(btn);
+  }
+
+  renderAttentionHeatmap();
+}
+
+function renderAttentionHeatmap() {
+  const { weights, labels, n, activeHead } = attnState;
+  if (!weights) return;
+
+  const container = document.getElementById('attn-heatmap-container');
+  const h = activeHead;
+  const cols = n + 1; // label col + key positions
+
+  let html = `<div style="font-size:0.75rem;color:var(--dim);margin-bottom:8px">
+    Rows = query position (current token) | Columns = key position (what it attends to)</div>`;
+  html += `<div class="attn-grid" style="grid-template-columns: repeat(${cols}, 48px)">`;
+
+  // Header row
+  html += `<div class="attn-label"></div>`;
+  for (let c = 0; c < n; c++) html += `<div class="attn-label">${labels[c]}</div>`;
+
+  // Data rows
+  for (let qPos = 0; qPos < n; qPos++) {
+    html += `<div class="attn-label">${labels[qPos]}</div>`;
+    const w = weights[qPos][h];
+    for (let kPos = 0; kPos < n; kPos++) {
+      if (kPos <= qPos) {
+        const val = w[kPos];
+        const r = Math.round(34 + val * (74 - 34));
+        const g = Math.round(211 + val * (222 - 211));
+        const b = Math.round(238 + val * (128 - 238));
+        const alpha = 0.15 + val * 0.85;
+        html += `<div class="attn-cell" style="background:rgba(${r},${g},${b},${alpha})"
+          onclick="showAttnDetail(${qPos},${kPos},${h})">${val.toFixed(2)}</div>`;
+      } else {
+        html += `<div class="attn-cell" style="background:var(--bg);color:var(--border)">—</div>`;
+      }
+    }
+  }
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function showAttnDetail(qPos, kPos, head) {
+  const detail = document.getElementById('attn-detail');
+  const w = attnState.weights[qPos][head][kPos];
+  const qLabel = attnState.labels[qPos], kLabel = attnState.labels[kPos];
+  detail.innerHTML = `<span style="color:var(--cyan)">Head ${head + 1}</span>: "${qLabel}" (pos ${qPos}) attends to "${kLabel}" (pos ${kPos}) with weight <span style="color:var(--green)">${w.toFixed(4)}</span>`;
+}
+
+// ==================== SECTION 6: TRAINING ====================
+
+function initTrainingSection() {
+  renderLossChart();
+  updateTrainStats();
+}
+
+function updateTrainStats(result) {
+  document.getElementById('train-step').textContent = trainStepNum;
+  document.getElementById('train-loss').textContent = lossHistory.length > 0 ? lossHistory[lossHistory.length - 1].toFixed(4) : '—';
+  const lr = LR * (1 - (trainStepNum > 0 ? (trainStepNum - 1) : 0) / NUM_STEPS);
+  document.getElementById('train-lr').textContent = lr.toFixed(4);
+
+  if (result) {
+    const doc = result.doc;
+    const tokens = result.tokens;
+    const el = document.getElementById('train-doc');
+    const chars = ['BOS', ...doc.split(''), 'BOS'];
+    let html = `<div style="margin-bottom:8px;color:var(--dim);font-size:0.8rem">Training on: "${doc}"</div>`;
+    for (let i = 0; i < result.n; i++) {
+      html += `<span class="train-pair"><span class="input">${chars[i]}</span><span class="arrow">&#8594;</span><span class="target">${chars[i + 1]}</span></span>`;
+    }
+    el.innerHTML = html;
+  }
+}
+
+async function handleTrain(n) {
+  const btns = document.querySelectorAll('#sec-training .btn');
+  btns.forEach(b => b.disabled = true);
+
+  for (let i = 0; i < n; i++) {
+    const result = trainOneStep();
+    if (i === n - 1 || i % 10 === 0) {
+      updateTrainStats(result);
+      renderLossChart();
+    }
+    if (n > 1 && i % 5 === 0) await new Promise(r => setTimeout(r, 0)); // yield to browser
+  }
+
+  btns.forEach(b => b.disabled = false);
+  updateModelBadge();
+  initParamsSection();
+}
+
+function renderLossChart() {
+  const canvas = document.getElementById('loss-canvas');
+  canvas.width = canvas.clientWidth * (window.devicePixelRatio || 1);
+  canvas.height = 180 * (window.devicePixelRatio || 1);
+  canvas.style.height = '180px';
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  ctx.scale(dpr, dpr);
+  const W = canvas.clientWidth, H = 180;
+
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+  ctx.fillRect(0, 0, W, H);
+
+  if (lossHistory.length < 2) {
+    ctx.fillStyle = '#555';
+    ctx.font = '13px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText('Train to see the loss curve', W / 2, H / 2);
+    return;
+  }
+
+  const pad = { l: 50, r: 16, t: 16, b: 28 };
+  const gw = W - pad.l - pad.r, gh = H - pad.t - pad.b;
+  const maxLoss = Math.max(...lossHistory) * 1.05;
+  const minLoss = Math.max(0, Math.min(...lossHistory) - 0.1);
+
+  // Grid
+  ctx.strokeStyle = '#1e2233';
+  ctx.lineWidth = 1;
+  for (let y = 0; y < 5; y++) {
+    const py = pad.t + (y / 4) * gh;
+    ctx.beginPath(); ctx.moveTo(pad.l, py); ctx.lineTo(W - pad.r, py); ctx.stroke();
+    ctx.fillStyle = '#555'; ctx.font = '10px monospace'; ctx.textAlign = 'right';
+    ctx.fillText((maxLoss - (y / 4) * (maxLoss - minLoss)).toFixed(1), pad.l - 6, py + 4);
+  }
+
+  // Line
+  ctx.strokeStyle = '#60a5fa';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  lossHistory.forEach((loss, i) => {
+    const px = pad.l + (i / (lossHistory.length - 1)) * gw;
+    const py = pad.t + (1 - (loss - minLoss) / (maxLoss - minLoss)) * gh;
+    i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+  });
+  ctx.stroke();
+
+  // Step label
+  ctx.fillStyle = '#555'; ctx.font = '10px monospace'; ctx.textAlign = 'center';
+  ctx.fillText(`Step 0`, pad.l, H - 6);
+  ctx.fillText(`Step ${lossHistory.length}`, W - pad.r, H - 6);
+}
+
+// ==================== SECTION 7: INFERENCE ====================
+
+function generateName(temperature) {
+  const kvK = Array.from({ length: N_LAYER }, () => []);
+  const kvV = Array.from({ length: N_LAYER }, () => []);
+  let tokenId = BOS;
+  const tokens = [];
+  const allProbs = [];
+
+  for (let pos = 0; pos < BLOCK_SIZE; pos++) {
+    const logits = gptNumeric(tokenId, pos, kvK, kvV, stateDict);
+    const scaled = logits.map(l => l / temperature);
+    const probs = softmaxN(scaled);
+    allProbs.push(probs.slice());
+
+    // Weighted random choice
+    const r = Math.random();
+    let cumul = 0;
+    let sampled = VOCAB_SIZE - 1;
+    for (let i = 0; i < VOCAB_SIZE; i++) {
+      cumul += probs[i];
+      if (r < cumul) { sampled = i; break; }
+    }
+
+    if (sampled === BOS) break;
+    tokens.push(sampled);
+    tokenId = sampled;
+  }
+
+  return { name: tokens.map(t => UCHARS[t]).join(''), tokens, probs: allProbs };
+}
+
+function generateAndShow() {
+  const temp = parseFloat(document.getElementById('temp-slider').value);
+  const result = generateName(temp);
+  const container = document.getElementById('gen-output');
+
+  const nameDiv = document.createElement('div');
+  nameDiv.className = 'gen-name';
+
+  let html = `<span class="gen-token bos-tok" onclick="showTokenProbs(this, null)">[BOS]</span>`;
+  result.tokens.forEach((t, i) => {
+    html += `<span class="gen-token" data-idx="${i}" onclick="showTokenProbs(this, ${i})">${UCHARS[t]}</span>`;
+  });
+  html += `<span class="gen-token bos-tok">[BOS]</span>`;
+  nameDiv.innerHTML = html;
+
+  // Store probs data
+  nameDiv._probs = result.probs;
+  nameDiv._tokens = result.tokens;
+
+  container.prepend(nameDiv);
+
+  // Limit displayed names
+  while (container.children.length > 10) container.removeChild(container.lastChild);
+
+  document.getElementById('gen-prob-detail').innerHTML = '';
+}
+
+function generateBatch() {
+  for (let i = 0; i < 10; i++) generateAndShow();
+}
+
+function showTokenProbs(el, idx) {
+  const nameDiv = el.closest('.gen-name');
+  const probs = nameDiv._probs;
+  const tokens = nameDiv._tokens;
+  if (idx === null || !probs[idx]) return;
+
+  const p = probs[idx];
+  const sampledToken = tokens[idx];
+  const sorted = p.map((prob, i) => ({ prob, i })).sort((a, b) => b.prob - a.prob).slice(0, 10);
+
+  const detail = document.getElementById('gen-prob-detail');
+  let html = `<div style="font-size:0.8rem;color:var(--dim);margin-bottom:6px">Probability distribution at position ${idx + 1}:</div>`;
+
+  sorted.forEach(({ prob, i }) => {
+    const label = i === BOS ? 'BOS' : UCHARS[i];
+    const isSampled = i === sampledToken;
+    const barWidth = Math.max(1, prob * 300);
+    const color = isSampled ? 'var(--green)' : 'var(--blue)';
+    html += `<div class="prob-bar-row ${isSampled ? 'sampled' : ''}">
+      <span class="prob-bar-label">${label}</span>
+      <div class="prob-bar" style="width:${barWidth}px;background:${color}"></div>
+      <span class="prob-bar-val">${(prob * 100).toFixed(1)}%</span>
+    </div>`;
+  });
+
+  detail.innerHTML = html;
+}
+
+// ==================== UTILITIES ====================
+
+function toggleCode(btn) {
+  const block = btn.nextElementSibling;
+  block.classList.toggle('open');
+  btn.textContent = block.classList.contains('open') ? 'Hide Python Code' : 'Show Python Code';
+}
+
+function updateModelBadge() {
+  const badge = document.getElementById('model-badge');
+  if (trainStepNum > 0) {
+    badge.textContent = `Trained (${trainStepNum} steps)`;
+    badge.className = 'badge trained';
+  } else {
+    badge.textContent = 'Random (untrained)';
+    badge.className = 'badge random';
+  }
+}
+
+function resetModel() {
+  initModel();
+  updateModelBadge();
+  initParamsSection();
+  initTrainingSection();
+  computeAndShowAttention();
+  initArchSection();
+  document.getElementById('gen-output').innerHTML = '';
+  document.getElementById('gen-prob-detail').innerHTML = '';
+}
+
+async function pretrainModel() {
+  const btn = document.getElementById('pretrain-btn');
+  btn.disabled = true;
+  btn.textContent = 'Pre-training...';
+
+  initModel();
+  const steps = 300;
+  for (let i = 0; i < steps; i++) {
+    trainOneStep();
+    if (i % 20 === 0) {
+      updateModelBadge();
+      renderLossChart();
+      updateTrainStats();
+      await new Promise(r => setTimeout(r, 0));
+    }
+  }
+
+  updateModelBadge();
+  initParamsSection();
+  renderLossChart();
+  updateTrainStats();
+  computeAndShowAttention();
+  initArchSection();
+
+  btn.disabled = false;
+  btn.textContent = 'Pre-train 300 Steps';
+}
+
+// Scroll spy
+function initScrollSpy() {
+  const links = document.querySelectorAll('#sidebar a');
+  const sections = [...links].map(a => document.querySelector(a.getAttribute('href')));
+
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        links.forEach(a => a.classList.remove('active'));
+        const link = document.querySelector(`#sidebar a[href="#${entry.target.id}"]`);
+        if (link) link.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-20% 0px -60% 0px' });
+
+  sections.forEach(s => { if (s) observer.observe(s); });
+}
+
+// ==================== INITIALIZATION ====================
+
+async function init() {
+  const loadBar = document.getElementById('load-bar');
+  const loadStatus = document.getElementById('load-status');
+
+  // Init model
+  loadStatus.textContent = 'Initializing model...';
+  loadBar.style.width = '5%';
+  initModel();
+  await new Promise(r => setTimeout(r, 50));
+
+  // Pre-train
+  const pretrainSteps = 300;
+  for (let i = 0; i < pretrainSteps; i++) {
+    trainOneStep();
+    if (i % 15 === 0) {
+      const pct = 5 + (i / pretrainSteps) * 90;
+      loadBar.style.width = pct + '%';
+      loadStatus.textContent = `Training step ${i + 1} / ${pretrainSteps} | loss: ${lossHistory[lossHistory.length - 1].toFixed(3)}`;
+      await new Promise(r => setTimeout(r, 0));
+    }
+  }
+
+  // Init sections
+  loadBar.style.width = '98%';
+  loadStatus.textContent = 'Setting up interactive sections...';
+  await new Promise(r => setTimeout(r, 50));
+
+  initTokenizerSection();
+  setAutogradPreset('add', document.querySelector('#sec-autograd .btn-group .btn'));
+  initParamsSection();
+  initArchSection();
+  computeAndShowAttention();
+  initTrainingSection();
+  updateModelBadge();
+  initScrollSpy();
+
+  // Done
+  loadBar.style.width = '100%';
+  loadStatus.textContent = 'Ready!';
+  await new Promise(r => setTimeout(r, 300));
+  document.getElementById('loading').classList.add('done');
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
