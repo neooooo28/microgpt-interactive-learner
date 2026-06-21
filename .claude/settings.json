@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python microgpt.py:*)",
+      "Bash(python3 microgpt.py:*)"
+    ]
+  }
+}
